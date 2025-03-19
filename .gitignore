@@ -1,0 +1,13 @@
+/active_subscribers_per_month.csv
+/all_sub_last12
+/all_sub_last12.csv
+/all_subscriptions_09-2024-03-2025.csv
+/analyse.py
+/api_stripe.py
+/canceled_customers_emails.csv
+/monthly_customer_analysis.csv
+/monthly_customer_churn_analysis.csv
+/otu_vip.csv
+/otu_vip_analyse.py
+/subscriptions_last12.csv
+/test.py
