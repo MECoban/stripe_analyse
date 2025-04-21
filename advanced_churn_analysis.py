@@ -15,6 +15,39 @@ if data_file is not None:
     # Load the uploaded CSV file
     data = pd.read_csv(data_file)
     
+    # Customer exclusion section
+    st.sidebar.header("Customer Exclusion")
+    exclusion_method = st.sidebar.radio(
+        "Choose exclusion method",
+        ["None", "Upload CSV", "Manual Entry"]
+    )
+    
+    excluded_customers = []
+    if exclusion_method == "Upload CSV":
+        exclusion_file = st.sidebar.file_uploader("Upload CSV with customer emails to exclude", type=["csv"])
+        if exclusion_file is not None:
+            exclusion_df = pd.read_csv(exclusion_file)
+            if 'Customer Email' in exclusion_df.columns:
+                excluded_customers = exclusion_df['Customer Email'].tolist()
+                st.sidebar.success(f"Loaded {len(excluded_customers)} customers to exclude")
+            else:
+                st.sidebar.error("CSV must contain a 'Customer Email' column")
+    elif exclusion_method == "Manual Entry":
+        customer_emails_text = st.sidebar.text_area(
+            "Enter Customer Emails to exclude (one per line)",
+            help="Enter each Customer Email on a new line"
+        )
+        if customer_emails_text:
+            excluded_customers = [email.strip() for email in customer_emails_text.split('\n') if email.strip()]
+            st.sidebar.success(f"Added {len(excluded_customers)} customers to exclude")
+    
+    # Filter out excluded customers
+    if excluded_customers:
+        original_count = len(data)
+        data = data[~data['Customer Email'].isin(excluded_customers)]
+        excluded_count = original_count - len(data)
+        st.sidebar.info(f"Excluded {excluded_count} customer records from analysis")
+    
     # Check if product column exists, if not create a default one
     if 'Product' not in data.columns:
         data['Product'] = 'Default Product'
@@ -42,7 +75,7 @@ if data_file is not None:
     filtered_data = filtered_data.drop_duplicates(subset=['Customer ID', 'Product'])
 
     # Create tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["Monthly Analysis", "Product Comparison", "Customer Details", "Monthly Breakdown"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Monthly Analysis", "Product Comparison", "Customer Details", "Monthly Breakdown", "Monthly Product Analysis"])
     
     with tab1:
         # Calculate customers created per month
@@ -350,6 +383,142 @@ if data_file is not None:
         if st.button("Export Monthly Summary"):
             monthly_summary_df.to_csv('monthly_summary.csv', index=False)
             st.success("Monthly summary exported to 'monthly_summary.csv'")
+    
+    with tab5:
+        # Monthly Product Analysis
+        st.write("### Monthly Product Analysis")
+        
+        # Product selector for detailed analysis
+        selected_product = st.selectbox("Select a product for detailed monthly analysis", selected_products)
+        
+        # Filter data for selected product
+        product_data = filtered_data[filtered_data['Product'] == selected_product]
+        
+        # Calculate monthly metrics for the selected product
+        monthly_product_metrics = []
+        
+        for month in all_months:
+            month_str = str(month)
+            
+            # Count created in this month
+            created_this_month = len(product_data[product_data['created_month'] == month])
+            
+            # Count canceled in this month
+            canceled_this_month = len(product_data[product_data['canceled_month'] == month])
+            
+            # Count active at end of month
+            active_at_month_end = len(product_data[
+                (product_data['created_month'] <= month) & 
+                ((product_data['canceled_month'].isna()) | (product_data['canceled_month'] > month))
+            ])
+            
+            # Calculate churn rate for this month
+            churn_rate = (canceled_this_month / created_this_month * 100) if created_this_month > 0 else 0
+            
+            # Calculate net growth (created - canceled)
+            net_growth = created_this_month - canceled_this_month
+            
+            # Calculate growth rate
+            growth_rate = (net_growth / active_at_month_end * 100) if active_at_month_end > 0 else 0
+            
+            # Calculate retention rate (1 - churn rate)
+            retention_rate = 100 - churn_rate
+            
+            monthly_product_metrics.append({
+                'Month': month_str,
+                'Created': created_this_month,
+                'Canceled': canceled_this_month,
+                'Active': active_at_month_end,
+                'Net Growth': net_growth,
+                'Churn Rate (%)': churn_rate,
+                'Growth Rate (%)': growth_rate,
+                'Retention Rate (%)': retention_rate
+            })
+        
+        monthly_product_df = pd.DataFrame(monthly_product_metrics)
+        
+        # Display monthly product metrics
+        st.write(f"#### Monthly Metrics for {selected_product}")
+        st.dataframe(monthly_product_df)
+        
+        # Create visualizations for the selected product
+        st.write(f"#### Monthly Trends for {selected_product}")
+        
+        # Create a multi-metric visualization
+        fig = make_subplots(rows=3, cols=1, 
+                            subplot_titles=("Customer Counts", "Growth Metrics", "Rates"),
+                            vertical_spacing=0.1)
+        
+        # Add traces for customer counts
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Created'], 
+                       name="Created", line=dict(width=2, color='green')),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Canceled'], 
+                       name="Canceled", line=dict(width=2, color='red')),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Active'], 
+                       name="Active", line=dict(width=2, color='blue')),
+            row=1, col=1
+        )
+        
+        # Add traces for growth metrics
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Net Growth'], 
+                       name="Net Growth", line=dict(width=2, color='purple')),
+            row=2, col=1
+        )
+        
+        # Add traces for rates
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Churn Rate (%)'], 
+                       name="Churn Rate (%)", line=dict(width=2, color='red')),
+            row=3, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Growth Rate (%)'], 
+                       name="Growth Rate (%)", line=dict(width=2, color='green')),
+            row=3, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Retention Rate (%)'], 
+                       name="Retention Rate (%)", line=dict(width=2, color='blue')),
+            row=3, col=1
+        )
+        
+        fig.update_layout(height=900, title_text=f"Monthly Analysis for {selected_product}", showlegend=True)
+        st.plotly_chart(fig)
+        
+        # Calculate and display key metrics
+        st.write(f"#### Key Metrics for {selected_product}")
+        
+        # Calculate overall metrics
+        total_created = monthly_product_df['Created'].sum()
+        total_canceled = monthly_product_df['Canceled'].sum()
+        current_active = monthly_product_df['Active'].iloc[-1] if not monthly_product_df.empty else 0
+        overall_churn_rate = (total_canceled / total_created * 100) if total_created > 0 else 0
+        overall_retention_rate = 100 - overall_churn_rate
+        
+        # Display metrics in columns
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Created", total_created)
+            st.metric("Total Canceled", total_canceled)
+        with col2:
+            st.metric("Current Active", current_active)
+            st.metric("Net Growth", total_created - total_canceled)
+        with col3:
+            st.metric("Overall Churn Rate (%)", f"{overall_churn_rate:.2f}%")
+            st.metric("Overall Retention Rate (%)", f"{overall_retention_rate:.2f}%")
+        
+        # Export monthly product analysis
+        if st.button(f"Export {selected_product} Monthly Analysis"):
+            monthly_product_df.to_csv(f'{selected_product}_monthly_analysis.csv', index=False)
+            st.success(f"Monthly analysis for {selected_product} exported to '{selected_product}_monthly_analysis.csv'")
 
     # Save analysis results
     st.success("Analysis Completed!")
