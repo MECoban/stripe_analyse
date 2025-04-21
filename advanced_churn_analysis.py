@@ -42,7 +42,7 @@ if data_file is not None:
     filtered_data = filtered_data.drop_duplicates(subset=['Customer ID', 'Product'])
 
     # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["Monthly Analysis", "Product Comparison", "Customer Details"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Monthly Analysis", "Product Comparison", "Customer Details", "Monthly Breakdown"])
     
     with tab1:
         # Calculate customers created per month
@@ -233,6 +233,123 @@ if data_file is not None:
         if st.button("Export Customer Details"):
             customer_details.to_csv('customer_details.csv', index=False)
             st.success("Customer details exported to 'customer_details.csv'")
+    
+    with tab4:
+        # Monthly breakdown analysis
+        st.write("### Monthly Breakdown Analysis")
+        
+        # Create a monthly summary DataFrame
+        monthly_summary = []
+        
+        for month in all_months:
+            month_str = str(month)
+            
+            # Filter data for this month
+            month_data = filtered_data[
+                (filtered_data['created_month'] <= month) & 
+                ((filtered_data['canceled_month'].isna()) | (filtered_data['canceled_month'] > month))
+            ]
+            
+            # Calculate metrics for each product
+            for product in selected_products:
+                product_month_data = month_data[month_data['Product'] == product]
+                
+                # Count created in this month
+                created_this_month = len(filtered_data[
+                    (filtered_data['created_month'] == month) & 
+                    (filtered_data['Product'] == product)
+                ])
+                
+                # Count canceled in this month
+                canceled_this_month = len(filtered_data[
+                    (filtered_data['canceled_month'] == month) & 
+                    (filtered_data['Product'] == product)
+                ])
+                
+                # Count active at end of month
+                active_at_month_end = len(product_month_data)
+                
+                # Calculate churn rate for this month
+                churn_rate = (canceled_this_month / created_this_month * 100) if created_this_month > 0 else 0
+                
+                monthly_summary.append({
+                    'Month': month_str,
+                    'Product': product,
+                    'Created': created_this_month,
+                    'Canceled': canceled_this_month,
+                    'Active': active_at_month_end,
+                    'Churn Rate (%)': churn_rate
+                })
+        
+        monthly_summary_df = pd.DataFrame(monthly_summary)
+        
+        # Display monthly summary
+        st.write("#### Monthly Summary by Product")
+        st.dataframe(monthly_summary_df)
+        
+        # Create a heatmap of churn rates
+        st.write("#### Churn Rate Heatmap")
+        
+        # Pivot the data for the heatmap
+        churn_heatmap_data = monthly_summary_df.pivot(
+            index='Month', 
+            columns='Product', 
+            values='Churn Rate (%)'
+        ).fillna(0)
+        
+        # Create the heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=churn_heatmap_data.values,
+            x=churn_heatmap_data.columns,
+            y=churn_heatmap_data.index,
+            colorscale='RdYlGn_r',  # Red for high churn, green for low churn
+            colorbar=dict(title='Churn Rate (%)')
+        ))
+        
+        fig.update_layout(
+            title='Monthly Churn Rate Heatmap by Product',
+            xaxis_title='Product',
+            yaxis_title='Month',
+            height=600
+        )
+        
+        st.plotly_chart(fig)
+        
+        # Create a stacked area chart for customer growth
+        st.write("#### Customer Growth Over Time")
+        
+        # Pivot the data for the stacked area chart
+        growth_data = monthly_summary_df.pivot(
+            index='Month', 
+            columns='Product', 
+            values='Active'
+        ).fillna(0)
+        
+        # Create the stacked area chart
+        fig = go.Figure()
+        
+        for product in growth_data.columns:
+            fig.add_trace(go.Scatter(
+                x=growth_data.index,
+                y=growth_data[product],
+                name=product,
+                stackgroup='one',
+                mode='lines'
+            ))
+        
+        fig.update_layout(
+            title='Customer Growth Over Time',
+            xaxis_title='Month',
+            yaxis_title='Number of Active Customers',
+            height=500
+        )
+        
+        st.plotly_chart(fig)
+        
+        # Export monthly summary
+        if st.button("Export Monthly Summary"):
+            monthly_summary_df.to_csv('monthly_summary.csv', index=False)
+            st.success("Monthly summary exported to 'monthly_summary.csv'")
 
     # Save analysis results
     st.success("Analysis Completed!")
