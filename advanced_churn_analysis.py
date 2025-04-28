@@ -13,6 +13,104 @@ load_dotenv()
 
 # Password protection removed for now
 
+# Define Product IDs globally
+VIP_PRODUCT_ID = "prod_ReY9OvvKriHaxW"
+GOLD_PRODUCT_IDs = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]
+
+# Define product start dates
+PRODUCT_START_DATES = {
+    "GOLD": datetime(2024, 7, 4),
+    "VIP": datetime(2025, 1, 25)
+}
+
+# Cache the data fetching function - Reverted to using show_spinner, removed st.error
+@st.cache_data(ttl=3600, show_spinner="Fetching Stripe data...")
+def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
+    # These IDs are now defined globally
+    if selected_product_label == "GOLD":
+        target_product_ids = set(GOLD_PRODUCT_IDs)
+    elif selected_product_label == "VIP":
+        target_product_ids = {VIP_PRODUCT_ID}
+    else:
+        return [], [], "Invalid product selection" # Return error message
+
+    error_message = None # Variable to store potential errors
+
+    # --- Step 1: Fetch Relevant Subscriptions --- 
+    all_subscriptions = []
+    has_more = True
+    starting_after = None
+    while has_more:
+        params = {
+            'limit': 100, 
+            'status': 'all',
+            'created': {'gte': min_creation_timestamp}
+        }
+        if starting_after:
+            params['starting_after'] = starting_after
+        try:
+            response = stripe.Subscription.list(**params)
+            if not response.data:
+                has_more = False
+                break
+            all_subscriptions.extend(response.data)
+            has_more = response.has_more
+            if has_more:
+                starting_after = response.data[-1].id
+            else:
+                has_more = False
+        except Exception as e:
+            error_message = f"Error fetching subscriptions: {e}"
+            print(error_message) # Log error instead of st.error
+            return [], [], error_message # Return error message
+            
+    # --- Step 2: Filter Subscriptions --- 
+    filtered_subscriptions = []
+    relevant_customer_ids = set()
+    for sub in all_subscriptions:
+        product_id = sub.plan.product if hasattr(sub, 'plan') and hasattr(sub.plan, 'product') else None
+        if product_id in target_product_ids:
+            filtered_subscriptions.append(sub)
+            if sub.customer: 
+                relevant_customer_ids.add(sub.customer) 
+            
+    if not relevant_customer_ids:
+         return [], [], "No relevant subscriptions found." # Return message
+
+    # --- Step 3: Fetch Relevant Customers --- 
+    relevant_customers = []
+    has_more = True
+    starting_after = None
+    while has_more:
+        params = {'limit': 100}
+        if starting_after:
+            params['starting_after'] = starting_after
+        try:
+            response = stripe.Customer.list(**params)
+            if not response.data:
+                has_more = False
+                break
+            
+            page_relevant_customers = [c for c in response.data if c.id in relevant_customer_ids]
+            relevant_customers.extend(page_relevant_customers)
+            
+            if len(relevant_customers) >= len(relevant_customer_ids):
+                has_more = False
+                break
+                
+            has_more = response.has_more
+            if has_more:
+                starting_after = response.data[-1].id
+            else:
+                has_more = False
+        except Exception as e:
+            error_message = f"Error fetching customers: {e}"
+            print(error_message) # Log error instead of st.error
+            # Return partially fetched data and error message
+            return relevant_customers, filtered_subscriptions, error_message 
+
+    return relevant_customers, filtered_subscriptions, error_message # Return data and None error if successful
+
 st.title("Advanced Customer Churn Analysis Dashboard")
 
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
@@ -27,129 +125,142 @@ except Exception as e:
     st.error(f"Error connecting to Stripe: {str(e)}")
     st.stop()
 
-# Date range selector
-col1, col2 = st.columns(2)
-with col1:
-    start_date = st.date_input("Start Date", value=datetime.now() - timedelta(days=365))
-with col2:
-    end_date = st.date_input("End Date", value=datetime.now())
-
-# Initialize session state for data if it doesn't exist
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-    st.session_state.app_data = pd.DataFrame() # Initialize with empty DataFrame
-
 # Product selector
 product_selector = st.selectbox("Select Product", ["GOLD", "VIP"])
 
-if st.button("Veriyi Getir ve Analizi Başlat"):
-    start_timestamp = int(datetime.combine(start_date, datetime.min.time()).timestamp())
-    end_timestamp = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+# Determine min creation timestamp based on selection
+min_creation_date = PRODUCT_START_DATES.get(product_selector, datetime(1970, 1, 1))
+min_creation_timestamp = int(min_creation_date.timestamp())
 
-    # Product IDs
-    VIP_PRODUCT_ID = "prod_ReY9OvvKriHaxW"
-    GOLD_PRODUCT_IDs = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]
+# Fetch data using the cached function
+customers, subscriptions, fetch_error = fetch_product_specific_data(product_selector, min_creation_timestamp)
 
-    # Fetch all customers
-    st.info("Fetching customer data from Stripe...")
-    customers = []
-    has_more = True
-    starting_after = None
-    while has_more:
-        params = {
-            'limit': 100,
-            'created': {'gte': start_timestamp, 'lte': end_timestamp}
-        }
-        if starting_after:
-            params['starting_after'] = starting_after
-        response = stripe.Customer.list(**params)
-        customers.extend(response.data)
-        has_more = response.has_more
-        if has_more:
-            starting_after = response.data[-1].id
+# Handle potential errors returned from the fetch function
+if fetch_error:
+    st.error(fetch_error)
+    st.stop() # Stop execution if there was a fetch error
 
-    # Fetch all subscriptions
-    st.info("Fetching subscription data from Stripe...")
-    subscriptions = []
-    has_more = True
-    starting_after = None
-    while has_more:
-        params = {
-            'limit': 100,
-            'created': {'gte': start_timestamp, 'lte': end_timestamp},
-            'status': 'all'
-        }
-        if starting_after:
-            params['starting_after'] = starting_after
-        response = stripe.Subscription.list(**params)
-        subscriptions.extend(response.data)
-        has_more = response.has_more
-        if has_more:
-            starting_after = response.data[-1].id
-
-    # Process data into DataFrame
+# Proceed only if data fetching was successful
+if customers is not None and subscriptions is not None:
+    # Process data into DataFrame (uses global IDs)
     customer_data = []
-    for customer in customers:
-        for sub in [s for s in subscriptions if s.customer == customer.id]:
+    for customer in customers: 
+        customer_subs = [sub for sub in subscriptions if sub.customer == customer.id] 
+        for sub in customer_subs: 
             product_id = sub.plan.product if hasattr(sub, 'plan') and hasattr(sub.plan, 'product') else 'Unknown Product'
-            # Map GOLD product IDs to 'GOLD', VIP to 'VIP', others unchanged
+            # Use globally defined IDs
             if product_id in GOLD_PRODUCT_IDs:
-                product_label = 'GOLD'
+                 product_label = 'GOLD'
             elif product_id == VIP_PRODUCT_ID:
-                product_label = 'VIP'
+                 product_label = 'VIP'
             else:
-                product_label = product_id
+                 product_label = product_id
+                 
             customer_data.append({
                 'Customer ID': customer.id,
                 'Customer Email': customer.email,
-                'Product': product_label,
+                'Product': product_label, # Should match product_selector now
                 'Created (UTC)': datetime.fromtimestamp(sub.created).strftime('%Y-%m-%d %H:%M:%S'),
                 'Canceled At (UTC)': datetime.fromtimestamp(sub.canceled_at).strftime('%Y-%m-%d %H:%M:%S') if sub.canceled_at else None,
                 'Status': sub.status
             })
 
     data = pd.DataFrame(customer_data)
-    
-    # Store data in session state
-    st.session_state.app_data = data
-    st.session_state.data_loaded = True
-    st.success("Veri başarıyla çekildi!")
 
-# Only proceed with analysis if data is loaded
-if st.session_state.data_loaded:
-    data = st.session_state.app_data
-
-    # Filter for selected product (apply this logic consistently)
+    # Filter for selected product (This step might be redundant now but ensures consistency)
     if product_selector == "GOLD":
-        analysis_data = data[data['Product'] == 'GOLD'].copy() # Use .copy() to avoid SettingWithCopyWarning later
+        analysis_data = data[data['Product'] == 'GOLD'].copy()
         selected_products = ['GOLD']
-        st.header("Analysis for Product: GOLD")
+        product_header = "Analysis for Product: GOLD"
     else:
-        analysis_data = data[data['Product'] == 'VIP'].copy() # Use .copy() to avoid SettingWithCopyWarning later
+        analysis_data = data[data['Product'] == 'VIP'].copy()
         selected_products = ['VIP']
-        st.header("Analysis for Product: VIP")
+        product_header = "Analysis for Product: VIP"
 
     if analysis_data.empty:
         st.warning(f"No data found for product: {product_selector}")
         st.stop()
 
-    # Convert dates for analysis (do this only once after loading data)
+    # Define active condition based on NOW
+    now = pd.Timestamp.utcnow().tz_localize(None) # Use UTC now but make it timezone-naive for comparison
+    if not analysis_data.empty:
+        # Ensure canceled_at_dt exists and is naive datetime
+        if 'canceled_at_dt' not in analysis_data.columns or analysis_data['canceled_at_dt'].dt.tz is not None:
+            analysis_data.loc[:, 'canceled_at_dt'] = pd.to_datetime(analysis_data['Canceled At (UTC)'], errors='coerce').dt.tz_localize(None)
+
+        active_mask_now = (analysis_data['Status'] == 'active') | \
+                      (analysis_data['Status'] == 'trialing') | \
+                      (analysis_data['Status'] == 'overdue') | \
+                      (analysis_data['Status'] == 'past_due') | \
+                      ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'].notna()) & (analysis_data['canceled_at_dt'] > now))
+        active_subs_now_df = analysis_data[active_mask_now]
+        
+        # Calculate trialing count based on NOW
+        trialing_mask_now = (analysis_data['Status'] == 'trialing')
+        trialing_count_now = len(analysis_data[trialing_mask_now])
+
+        # Calculate future-canceled count based on NOW
+        future_canceled_mask_now = (analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'].notna()) & (analysis_data['canceled_at_dt'] > now)
+        future_canceled_count_now = len(analysis_data[future_canceled_mask_now])
+
+        # Calculate overdue count based on NOW (now includes both overdue and past_due for display)
+        overdue_mask_now = (analysis_data['Status'] == 'overdue') | (analysis_data['Status'] == 'past_due')
+        overdue_count_now = len(analysis_data[overdue_mask_now])
+
+        # Filter for past_due customers based on NOW
+        past_due_mask_now = (analysis_data['Status'] == 'past_due')
+        past_due_df_now = analysis_data[past_due_mask_now]
+
+    else:
+        active_subs_now_df = pd.DataFrame(columns=analysis_data.columns)
+        trialing_count_now = 0
+        future_canceled_count_now = 0
+        overdue_count_now = 0
+
+    # Convert dates for analysis
     analysis_data.loc[:, 'created_date'] = pd.to_datetime(analysis_data['Created (UTC)'], errors='coerce')
     analysis_data.loc[:, 'canceled_date'] = pd.to_datetime(analysis_data['Canceled At (UTC)'], errors='coerce')
     analysis_data.loc[:, 'created_month'] = analysis_data['created_date'].dt.to_period('M')
     analysis_data.loc[:, 'canceled_month'] = analysis_data['canceled_date'].dt.to_period('M')
 
-    # Define all_months here so it's available for all tabs
+    # Define all_months 
     if not analysis_data.empty and 'created_month' in analysis_data.columns:
-        all_months = pd.period_range(start=analysis_data['created_month'].min(), end=pd.Timestamp.today().to_period('M'), freq='M')
+        min_date = analysis_data['created_month'].min()
+        max_date = pd.Timestamp.today().to_period('M')
+        if pd.isna(min_date):
+            all_months = pd.PeriodIndex([])
+        else:
+            # Ensure start is not after end
+            if min_date > max_date:
+                 all_months = pd.PeriodIndex([min_date]) # Or handle as error/empty
+            else:
+                 all_months = pd.period_range(start=min_date, end=max_date, freq='M')
     else:
-        all_months = pd.PeriodIndex([]) # Empty index if no data
+        all_months = pd.PeriodIndex([])
 
-    # Basic metrics (using analysis_data)
-    st.metric("Total Subscriptions", len(analysis_data))
-    st.metric("Active Subscriptions", len(analysis_data[analysis_data['Status'] == 'active']))
-    st.metric("Canceled Subscriptions", (analysis_data['Status'] == 'canceled').sum())
-    st.dataframe(analysis_data)
+    # Calculate active subscriptions based on the END OF THE LAST MONTH in the analysis range
+    last_month_active_subs_df = pd.DataFrame(columns=analysis_data.columns)
+    if not all_months.empty:
+        last_month = all_months[-1]
+        last_month_end_ts = last_month.to_timestamp(how='end').tz_localize(None)
+
+        if not analysis_data.empty:
+            # Ensure canceled_at_dt exists and is naive datetime
+            if 'canceled_at_dt' not in analysis_data.columns or analysis_data['canceled_at_dt'].dt.tz is not None:
+                analysis_data.loc[:, 'canceled_at_dt'] = pd.to_datetime(analysis_data['Canceled At (UTC)'], errors='coerce').dt.tz_localize(None)
+
+            last_month_active_mask = \
+                (analysis_data['created_month'] <= last_month) & \
+                (
+                    (analysis_data['Status'] == 'active') | \
+                    (analysis_data['Status'] == 'trialing') | \
+                    (analysis_data['Status'] == 'overdue') | \
+                    (analysis_data['Status'] == 'past_due') | \
+                    ((analysis_data['Status'] == 'canceled') & 
+                     (analysis_data['canceled_at_dt'].notna()) & 
+                     (analysis_data['canceled_at_dt'] > last_month_end_ts))
+                )
+            last_month_active_subs_df = analysis_data[last_month_active_mask]
 
     # Sidebar tab navigation in Turkish
     sidebar_tab = st.sidebar.radio(
@@ -163,8 +274,32 @@ if st.session_state.data_loaded:
         ]
     )
 
-    # Analysis tabs use 'analysis_data' and 'all_months' from now on
+    # Analysis tabs
     if sidebar_tab == "Aylık Analiz":
+        # Show header, metrics (using NOW active count), and main dataframe ONLY in this tab
+        st.header(product_header)
+        st.metric("Total Subscriptions", len(analysis_data))
+        st.metric("Active Subscriptions (Now)", len(active_subs_now_df)) # Includes active, trialing, future-canceled, overdue
+        st.metric("Canceled Subscriptions (Total)", (analysis_data['Status'] == 'canceled').sum()) # Total ever canceled
+        st.metric("Trialing Subscriptions (Now)", trialing_count_now) # Display trialing count
+        st.metric("Future-Canceled Subscriptions (Now)", future_canceled_count_now) # Display future-canceled count
+        st.metric("Overdue Subscriptions (Now)", overdue_count_now) # Display overdue/past_due count
+        st.dataframe(analysis_data)
+        
+        # Display Past Due customer list
+        st.subheader("Customers with Past Due Status (Now)")
+        if not past_due_df_now.empty:
+            # Display original columns
+            st.dataframe(past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']])
+            
+            # Optional: Add export for past due list
+            if st.button("Export Past Due List"):
+                # Export the original dataframe without the date column
+                past_due_df_now.to_csv('past_due_customers.csv', index=False)
+                st.success("Past due customer list exported to 'past_due_customers.csv'")
+        else:
+            st.info("No customers currently have a 'past_due' status.")
+        
         # Calculate customers created per month
         created_per_month = analysis_data.groupby(['created_month', 'Product'])['Customer ID'].count().reset_index()
         created_per_month = created_per_month.pivot(index='created_month', columns='Product', values='Customer ID').fillna(0)
@@ -176,10 +311,20 @@ if st.session_state.data_loaded:
         # Calculate active customers per month correctly
         active_per_month = {}
         for month in all_months:
-            active_customers = analysis_data[
-                (analysis_data['created_month'] <= month) &
-                ((analysis_data['canceled_month'].isna()) | (analysis_data['canceled_month'] > month))
-            ]
+            # Apply the same active logic for the specific month end
+            month_end = month.to_timestamp(how='end') # Get the timestamp for comparison
+            
+            # Ensure dates are comparable (convert month Period to timestamp for comparison with datetime)
+            active_mask_month = \
+                (analysis_data['created_month'] <= month) & \
+                (
+                    (analysis_data['Status'] == 'active') | \
+                    (analysis_data['Status'] == 'trialing') | \
+                    (analysis_data['Status'] == 'overdue') | \
+                    (analysis_data['Status'] == 'past_due') | \
+                    ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'] > month_end))
+                )
+            active_customers = analysis_data[active_mask_month]
             active_per_month[month] = active_customers.groupby('Product')['Customer ID'].count()
         
         active_per_month_df = pd.DataFrame(active_per_month).T.fillna(0)
@@ -321,28 +466,58 @@ if st.session_state.data_loaded:
             st.success("Customer details exported to 'customer_details.csv'")
     elif sidebar_tab == "Aylık Dağılım":
         # Monthly breakdown analysis
-        st.write("### Monthly Breakdown Analysis")
+        st.write("### Aylık Dağılım Tablosu")
         monthly_summary = []
+        now_naive = pd.Timestamp.utcnow().tz_localize(None) # Naive UTC now for comparison
+
         for month in all_months:
             month_str = str(month)
-            month_data = analysis_data[
-                (analysis_data['created_month'] <= month) &
-                ((analysis_data['canceled_month'].isna()) | (analysis_data['canceled_month'] > month))
-            ]
+            month_end_ts = month.to_timestamp(how='end').tz_localize(None) # Naive timestamp for end of month
+
+            # Use consistent active definition as of month_end_ts, now including 'overdue'
+            active_at_month_end_mask = \
+                (analysis_data['created_month'] <= month) & \
+                (
+                    (analysis_data['Status'] == 'active') | \
+                    (analysis_data['Status'] == 'trialing') | \
+                    (analysis_data['Status'] == 'overdue') | \
+                    (analysis_data['Status'] == 'past_due') | \
+                    ((analysis_data['Status'] == 'canceled') &
+                     (analysis_data['canceled_at_dt'].notna()) & # Ensure canceled_at_dt is not NaT
+                     (analysis_data['canceled_at_dt'] > month_end_ts))
+                )
+            
+            # Calculate metrics for each product for this month
             for product in selected_products:
-                product_month_data = month_data[month_data['Product'] == product]
+                 # Filter data specific to this product and active at month end
+                product_month_data_active = analysis_data[active_at_month_end_mask & (analysis_data['Product'] == product)]
+                active_at_month_end_count = len(product_month_data_active)
+
+                # Created this month
                 created_this_month = len(analysis_data[(analysis_data['created_month'] == month) & (analysis_data['Product'] == product)])
-                canceled_this_month = len(analysis_data[(analysis_data['canceled_month'] == month) & (analysis_data['Product'] == product)])
-                active_at_month_end = len(product_month_data)
-                churn_rate = (canceled_this_month / created_this_month * 100) if created_this_month > 0 else 0
+                
+                # Canceled this specific month (Status changed to canceled or canceled_at is within this month)
+                canceled_this_month = len(analysis_data[
+                    (analysis_data['canceled_month'] == month) & 
+                    (analysis_data['Product'] == product)
+                ])
+
+                # Original Churn Rate (vs Created)
+                churn_rate_original = (canceled_this_month / created_this_month * 100) if created_this_month > 0 else 0
+
+                # New Churn Rate Oguzhan (vs Active)
+                churn_rate_oguzhan = (canceled_this_month / active_at_month_end_count * 100) if active_at_month_end_count > 0 else 0
+                
                 monthly_summary.append({
                     'Month': month_str,
                     'Product': product,
                     'Created': created_this_month,
                     'Canceled': canceled_this_month,
-                    'Active': active_at_month_end,
-                    'Churn Rate (%)': churn_rate
+                    'Active': active_at_month_end_count,
+                    'Churn Rate (%)': churn_rate_original, # Keep original name or rename?
+                    'Churn Rate Oguzhan': churn_rate_oguzhan
                 })
+                
         monthly_summary_df = pd.DataFrame(monthly_summary)
         st.write("#### Monthly Summary by Product")
         st.dataframe(monthly_summary_df)
@@ -363,24 +538,47 @@ if st.session_state.data_loaded:
             st.success("Monthly summary exported to 'monthly_summary.csv'")
     elif sidebar_tab == "Aylık Ürün Analizi":
         # Monthly Product Analysis
-        st.write("### Monthly Product Analysis")
-        selected_product = st.selectbox("Select a product for detailed monthly analysis", selected_products, disabled=True) # Already filtered
-        product_data = analysis_data # Already filtered for the selected product (GOLD or VIP)
+        st.write("### Aylık Ürün Analizi")
+        selected_product = st.selectbox("Detaylı analiz için ürün seçin", selected_products, disabled=True) 
+        product_data = analysis_data # Already filtered
         monthly_product_metrics = []
+        now_naive = pd.Timestamp.utcnow().tz_localize(None)
+
         for month in all_months:
             month_str = str(month)
+            month_end_ts = month.to_timestamp(how='end').tz_localize(None)
+
+            # Created this month for the selected product
             created_this_month = len(product_data[product_data['created_month'] == month])
+            
+            # Canceled this month for the selected product
             canceled_this_month = len(product_data[product_data['canceled_month'] == month])
-            active_at_month_end = len(product_data[(product_data['created_month'] <= month) & ((product_data['canceled_month'].isna()) | (product_data['canceled_month'] > month))])
+
+            # Active at end of month using consistent definition, now including 'overdue'
+            active_at_month_end_mask = \
+                (product_data['created_month'] <= month) & \
+                (
+                    (product_data['Status'] == 'active') | \
+                    (product_data['Status'] == 'trialing') | \
+                    (product_data['Status'] == 'overdue') | \
+                    (product_data['Status'] == 'past_due') | \
+                    ((product_data['Status'] == 'canceled') &
+                     (product_data['canceled_at_dt'].notna()) &
+                     (product_data['canceled_at_dt'] > month_end_ts))
+                )
+            active_at_month_end_count = len(product_data[active_at_month_end_mask])
+
             churn_rate = (canceled_this_month / created_this_month * 100) if created_this_month > 0 else 0
             net_growth = created_this_month - canceled_this_month
-            growth_rate = (net_growth / active_at_month_end * 100) if active_at_month_end > 0 else 0
+            # Note: Growth rate definition might need refinement based on exact business logic
+            growth_rate = (net_growth / active_at_month_end_count * 100) if active_at_month_end_count > 0 else 0 
             retention_rate = 100 - churn_rate
+
             monthly_product_metrics.append({
                 'Month': month_str,
                 'Created': created_this_month,
                 'Canceled': canceled_this_month,
-                'Active': active_at_month_end,
+                'Active': active_at_month_end_count,
                 'Net Growth': net_growth,
                 'Churn Rate (%)': churn_rate,
                 'Growth Rate (%)': growth_rate,
@@ -421,7 +619,7 @@ if st.session_state.data_loaded:
             st.success(f"Monthly analysis for {selected_product} exported to '{selected_product}_monthly_analysis.csv'")
 
 else:
-    st.info("Analizi başlatmak için tarih aralığı ve ürün seçip butona basın.")
+    st.error("Failed to fetch data.")
 
 # Save analysis results
 st.success("Analysis Completed!") 
