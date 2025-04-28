@@ -1,14 +1,17 @@
-streamlit==1.44.1
-numpy==1.26.4
-pandas==2.2.3
-pyarrow==14.0.2
-plotly==6.0.1
-stripe==11.6.0
+streamlit>=1.25.0
+pandas>=2.0.0
+numpy>=1.24.0
+stripe>=5.0.0
+python-dotenv>=1.0.0
+plotly>=5.0.0
+
+# Additional libraries your app uses or may require
 matplotlib==3.10.1
 altair==5.5.0
 pydeck==0.9.1
 requests==2.32.3
 protobuf==5.29.3
+pyarrow==14.0.1
 Jinja2==3.1.6
 click==8.1.8
 typing_extensions==4.12.2
