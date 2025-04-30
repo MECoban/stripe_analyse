@@ -297,18 +297,38 @@ if customers is not None and subscriptions is not None:
                     try:
                         sub = stripe.Subscription.retrieve(sub_id)
                         if sub.latest_invoice:
-                            invoice = stripe.Invoice.retrieve(sub.latest_invoice, expand=['payment_intent'])
-                            if invoice.payment_intent and invoice.payment_intent.id:
-                                # Retrieve Payment Intent with expanded charges
-                                pi = stripe.PaymentIntent.retrieve(
-                                    invoice.payment_intent.id, 
-                                    expand=['charges.data'] # Expand charges data
-                                )
-                                # Count failed charges within this Payment Intent
-                                failed_charges = [c for c in pi.charges.data if c.status == 'failed']
-                                attempt_count = len(failed_charges)
+                            # 1. Retrieve invoice WITHOUT expanding PI first
+                            invoice = stripe.Invoice.retrieve(sub.latest_invoice)
+
+                            # 2. Check if invoice has a payment_intent ID attribute
+                            payment_intent_id = None
+                            if invoice.payment_intent: # Check if attribute exists and has a value
+                                # It could be the ID string directly or an object
+                                if isinstance(invoice.payment_intent, str):
+                                    payment_intent_id = invoice.payment_intent
+                                elif hasattr(invoice.payment_intent, 'id'): # Check if it's an object with an id
+                                    payment_intent_id = invoice.payment_intent.id
+                                    
+                            if payment_intent_id:
+                                # 3. If ID exists, retrieve PI separately and expand charges
+                                try:
+                                    pi = stripe.PaymentIntent.retrieve(
+                                        payment_intent_id,
+                                        expand=['charges.data'] # Expand charges data
+                                    )
+                                    # Count failed charges within this Payment Intent
+                                    failed_charges = [c for c in pi.charges.data if c.status == 'failed']
+                                    attempt_count = len(failed_charges)
+                                except stripe.error.InvalidRequestError as pi_err:
+                                     # Handle cases where PI retrieval might fail
+                                     print(f"Error retrieving PI {payment_intent_id} for invoice {invoice.id}: {pi_err}")
+                                     attempt_count = "PI Error"
+                                except Exception as pi_e:
+                                     print(f"General Error retrieving PI {payment_intent_id} for invoice {invoice.id}: {pi_e}")
+                                     attempt_count = "PI Error"
                             else:
-                                attempt_count = "N/A (No PI)" # Indicate no payment intent found
+                                # 4. No payment_intent ID found on invoice
+                                attempt_count = "N/A (No PI)"
                         else:
                              attempt_count = "N/A (No Inv)" # Indicate no latest invoice
 
@@ -316,10 +336,11 @@ if customers is not None and subscriptions is not None:
                         print(f"Permission Error for sub {sub_id}: {e}")
                         attempt_count = "Perm. Error" # Indicate permission issue
                         # Optional: break the loop if permission error occurs to avoid repeated errors
-                        # break 
+                        # break
                     except stripe.error.InvalidRequestError as e:
-                         print(f"Invalid Request Error for sub {sub_id}: {e}")
-                         attempt_count = "API Error" # Indicate general API error
+                         # Catch other potential invoice retrieval errors
+                         print(f"Invalid Request Error processing sub {sub_id}: {e}")
+                         attempt_count = "API Error (Inv)" # Indicate general API error during Invoice/Sub step
                     except Exception as e:
                         print(f"General Error fetching attempts for sub {sub_id}: {e}")
                         attempt_count = "Error"
