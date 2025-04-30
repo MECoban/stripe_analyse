@@ -302,13 +302,15 @@ if customers is not None and subscriptions is not None:
 
                             # 2. Check if invoice has a payment_intent ID attribute
                             payment_intent_id = None
-                            if invoice.payment_intent: # Check if attribute exists and has a value
-                                # It could be the ID string directly or an object
-                                if isinstance(invoice.payment_intent, str):
-                                    payment_intent_id = invoice.payment_intent
-                                elif hasattr(invoice.payment_intent, 'id'): # Check if it's an object with an id
-                                    payment_intent_id = invoice.payment_intent.id
-                                    
+                            # Safer check: Does the attribute exist AND is it not None?
+                            if hasattr(invoice, 'payment_intent') and invoice.payment_intent is not None:
+                                pi_value = invoice.payment_intent # Get the value safely
+                                if isinstance(pi_value, str):
+                                    payment_intent_id = pi_value
+                                elif hasattr(pi_value, 'id'): # Check if it's an object with an id
+                                    payment_intent_id = pi_value.id
+                                # Else: Attribute exists but not in expected format, treat as no PI ID found
+
                             if payment_intent_id:
                                 # 3. If ID exists, retrieve PI separately and expand charges
                                 try:
