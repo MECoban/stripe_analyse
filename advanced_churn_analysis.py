@@ -290,88 +290,47 @@ if customers is not None and subscriptions is not None:
         # Display Past Due customer list
         st.subheader("Customers with Past Due Status (Now)")
         if not past_due_df_now.empty:
-            failed_attempt_counts = []
-            last_failed_attempt_dates = [] # New list for dates
-            with st.spinner("Fetching failed payment details for past due customers..."):
+
+            invoice_attempt_counts = [] # List for invoice attempt counts
+            with st.spinner("Fetching invoice attempt counts for past due customers..."):
                 for sub_id in past_due_df_now['Subscription ID']:
-                    attempt_count = 0 # Default to 0
-                    last_failed_date = "N/A" # Default date
+                    inv_attempt_count = "N/A" # Default value
                     try:
+                        # Retrieve subscription to get latest_invoice ID
                         sub = stripe.Subscription.retrieve(sub_id)
                         if sub.latest_invoice:
+                            # Retrieve the latest invoice object
                             invoice = stripe.Invoice.retrieve(sub.latest_invoice)
-
-                            payment_intent_id = None
-                            if hasattr(invoice, 'payment_intent') and invoice.payment_intent is not None:
-                                pi_value = invoice.payment_intent
-                                if isinstance(pi_value, str):
-                                    payment_intent_id = pi_value
-                                elif hasattr(pi_value, 'id'):
-                                    payment_intent_id = pi_value.id
-
-                            if payment_intent_id:
-                                try:
-                                    pi = stripe.PaymentIntent.retrieve(
-                                        payment_intent_id,
-                                        expand=['charges.data']
-                                    )
-                                    failed_charges = [c for c in pi.charges.data if c.status == 'failed']
-                                    attempt_count = len(failed_charges)
-
-                                    # Find the latest failed charge date
-                                    if failed_charges:
-                                        latest_failed_charge = max(failed_charges, key=lambda c: c.created)
-                                        last_failed_timestamp = latest_failed_charge.created
-                                        last_failed_date = datetime.fromtimestamp(last_failed_timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                                    else:
-                                        last_failed_date = "N/A (No Fails)" # Should not happen if PI exists for past_due?
-
-                                except stripe.error.InvalidRequestError as pi_err:
-                                     print(f"Error retrieving PI {payment_intent_id} for invoice {invoice.id}: {pi_err}")
-                                     attempt_count = "PI Error"
-                                     last_failed_date = "PI Error"
-                                except Exception as pi_e:
-                                     print(f"General Error retrieving PI {payment_intent_id} for invoice {invoice.id}: {pi_e}")
-                                     attempt_count = "PI Error"
-                                     last_failed_date = "PI Error"
-                            else:
-                                attempt_count = "N/A (No PI)"
-                                last_failed_date = "N/A (No PI)"
+                            # Get the attempt_count directly from the invoice
+                            inv_attempt_count = invoice.attempt_count
                         else:
-                             attempt_count = "N/A (No Inv)"
-                             last_failed_date = "N/A (No Inv)"
+                            inv_attempt_count = "N/A (No Inv)"
 
                     except stripe.error.PermissionError as e:
                         print(f"Permission Error for sub {sub_id}: {e}")
-                        attempt_count = "Perm. Error"
-                        last_failed_date = "Perm. Error"
+                        inv_attempt_count = "Perm. Error"
                     except stripe.error.InvalidRequestError as e:
                          print(f"Invalid Request Error processing sub {sub_id}: {e}")
-                         attempt_count = "API Error (Inv)"
-                         last_failed_date = "API Error (Inv)"
+                         inv_attempt_count = "API Error"
                     except Exception as e:
-                        print(f"General Error fetching attempts for sub {sub_id}: {e}")
-                        attempt_count = "Error"
-                        last_failed_date = "Error"
+                        print(f"General Error fetching invoice for sub {sub_id}: {e}")
+                        inv_attempt_count = "Error"
+                        
+                    invoice_attempt_counts.append(inv_attempt_count)
 
-                    failed_attempt_counts.append(attempt_count)
-                    last_failed_attempt_dates.append(last_failed_date) # Append the date
-
-            # Create a display DataFrame with the new columns
+            # Create a display DataFrame with the new column
             past_due_df_display = past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']].copy()
-            past_due_df_display['Failed Attempts'] = failed_attempt_counts
-            past_due_df_display['Last Failed Attempt (UTC)'] = last_failed_attempt_dates # Add the date column
-
+            past_due_df_display['Invoice Attempt Count'] = invoice_attempt_counts # Add the new column
+            
             # Display the table
             st.dataframe(past_due_df_display)
-
-            # Optional: Add export for past due list including the new columns
+            
+            # Optional: Add export for past due list including the new column
             if st.button("Export Past Due List"):
-                export_df = past_due_df_now.copy()
-                export_df['Failed Attempts'] = failed_attempt_counts
-                export_df['Last Failed Attempt (UTC)'] = last_failed_attempt_dates # Add date to export
-                export_df.to_csv('past_due_customers_with_attempts.csv', index=False)
-                st.success("Past due customer list exported to 'past_due_customers_with_attempts.csv'")
+                export_df = past_due_df_now.copy() # Start with original data
+                export_df['Invoice Attempt Count'] = invoice_attempt_counts # Add the counts
+                export_df.to_csv('past_due_customers_invoice_attempts.csv', index=False)
+                st.success("Past due customer list exported to 'past_due_customers_invoice_attempts.csv'")
         else:
             st.info("No customers currently have a 'past_due' status.")
         
