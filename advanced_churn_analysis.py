@@ -288,7 +288,7 @@ if customers is not None and subscriptions is not None:
         st.dataframe(analysis_data)
         
         # Display Past Due customer list
-        st.subheader("Customers with Past Due Status (Now)")
+        st.subheader("Failed Olan Aboneler")
         if not past_due_df_now.empty:
 
             invoice_attempt_counts = [] # List for invoice attempt counts
