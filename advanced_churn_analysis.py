@@ -279,16 +279,22 @@ if customers is not None and subscriptions is not None:
     if sidebar_tab == "Aylık Analiz":
         # Show header, metrics (using NOW active count), and main dataframe ONLY in this tab
         st.header(product_header)
-        st.metric("Total Subscriptions", len(analysis_data))
-        st.metric("Active Subscriptions (Now)", len(active_subs_now_df)) # Includes active, trialing, future-canceled, overdue
-        st.metric("Canceled Subscriptions (Total)", (analysis_data['Status'] == 'canceled').sum()) # Total ever canceled
-        st.metric("Trialing Subscriptions (Now)", trialing_count_now) # Display trialing count
-        st.metric("Future-Canceled Subscriptions (Now)", future_canceled_count_now) # Display future-canceled count
-        st.metric("Overdue Subscriptions (Now)", overdue_count_now) # Display overdue/past_due count
+        
+        # Display metrics in two columns
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Toplam Subscriptions", len(analysis_data))
+            st.metric("Canceled Subscriptions (Total)", (analysis_data['Status'] == 'canceled').sum())
+            st.metric("Future-Canceled Subscriptions (Now)", future_canceled_count_now)
+        with col2:
+            st.metric("Active Subscriptions (Now)", len(active_subs_now_df)) # Includes active, trialing, future-canceled, overdue
+            st.metric("Trialing Subscriptions (Now)", trialing_count_now)
+            st.metric("Failed Subscriptions (Now)", overdue_count_now) # Display overdue/past_due count
+            
         st.dataframe(analysis_data)
         
         # Display Past Due customer list
-        st.subheader("Failed Olan Aboneler")
+        st.subheader("Failed Olan Abonelerin listesi")
         if not past_due_df_now.empty:
 
             invoice_attempt_counts = [] # List for invoice attempt counts
