@@ -292,43 +292,82 @@ if customers is not None and subscriptions is not None:
         if not past_due_df_now.empty:
 
             invoice_attempt_counts = [] # List for invoice attempt counts
-            with st.spinner("Fetching invoice attempt counts for past due customers..."):
+            last_attempt_dates = [] # List for last attempt dates
+            with st.spinner("Fetching invoice details for past due customers..."):
                 for sub_id in past_due_df_now['Subscription ID']:
                     inv_attempt_count = "N/A" # Default value
+                    last_attempt_date = "N/A" # Default date
                     try:
-                        # Retrieve subscription to get latest_invoice ID
                         sub = stripe.Subscription.retrieve(sub_id)
                         if sub.latest_invoice:
-                            # Retrieve the latest invoice object
                             invoice = stripe.Invoice.retrieve(sub.latest_invoice)
-                            # Get the attempt_count directly from the invoice
                             inv_attempt_count = invoice.attempt_count
+
+                            # Try to find the last failed payment event for this invoice
+                            try:
+                                events = stripe.Event.list(
+                                    type='invoice.payment_failed',
+                                    # Use the new recommended parameter 'resource' instead of 'related_object'
+                                    # See Stripe API changelog 2022-08-01
+                                    # It might vary depending on the stripe-python version
+                                    # Falling back to related_object if resource is not standard yet in all versions
+                                    # Let's try 'resource' first, but this might need adjustment based on library version
+                                    # Using related_object for potentially broader compatibility for now:
+                                    related_object=invoice.id, 
+                                    limit=1 # Get only the most recent one
+                                )
+                                if events.data:
+                                    latest_event = events.data[0]
+                                    last_attempt_timestamp = latest_event.created
+                                    last_attempt_date = datetime.fromtimestamp(last_attempt_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                                else:
+                                    # No failed event found, maybe the first attempt hasn't failed yet?
+                                    # Or maybe the first attempt succeeded then subscription churned?
+                                    # Check if attempt_count is > 0 but no failed event
+                                    if inv_attempt_count > 0:
+                                         last_attempt_date = "N/A (No Fail Event)"
+                                    else: # attempt_count is 0 or None
+                                         last_attempt_date = "N/A (No Attempts Yet)"
+
+                            except stripe.error.PermissionError as event_perm_err:
+                                print(f"Permission Error fetching events for invoice {invoice.id}: {event_perm_err}")
+                                last_attempt_date = "Perm. Error (Events)"
+                            except Exception as event_err:
+                                print(f"Error fetching events for invoice {invoice.id}: {event_err}")
+                                last_attempt_date = "Error (Events)"
                         else:
                             inv_attempt_count = "N/A (No Inv)"
+                            last_attempt_date = "N/A (No Inv)"
 
                     except stripe.error.PermissionError as e:
-                        print(f"Permission Error for sub {sub_id}: {e}")
+                        print(f"Permission Error processing sub {sub_id}: {e}")
                         inv_attempt_count = "Perm. Error"
+                        last_attempt_date = "Perm. Error"
                     except stripe.error.InvalidRequestError as e:
                          print(f"Invalid Request Error processing sub {sub_id}: {e}")
                          inv_attempt_count = "API Error"
+                         last_attempt_date = "API Error"
                     except Exception as e:
-                        print(f"General Error fetching invoice for sub {sub_id}: {e}")
+                        print(f"General Error processing sub {sub_id}: {e}")
                         inv_attempt_count = "Error"
+                        last_attempt_date = "Error"
                         
                     invoice_attempt_counts.append(inv_attempt_count)
+                    last_attempt_dates.append(last_attempt_date) # Append the date
 
-            # Create a display DataFrame with the new column
+            # Create a display DataFrame with the new columns
             past_due_df_display = past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']].copy()
-            past_due_df_display['Invoice Attempt Count'] = invoice_attempt_counts # Add the new column
+            past_due_df_display['Invoice Attempt Count'] = invoice_attempt_counts
+            past_due_df_display['Last Attempt (UTC)'] = last_attempt_dates # Add the date column
             
             # Display the table
             st.dataframe(past_due_df_display)
             
-            # Optional: Add export for past due list including the new column
+            # Optional: Add export for past due list including the new columns
             if st.button("Export Past Due List"):
-                export_df = past_due_df_now.copy() # Start with original data
-                export_df['Invoice Attempt Count'] = invoice_attempt_counts # Add the counts
+                export_df = past_due_df_now.copy()
+                export_df['Invoice Attempt Count'] = invoice_attempt_counts
+                export_df['Last Attempt (UTC)'] = last_attempt_dates # Add date to export
                 export_df.to_csv('past_due_customers_invoice_attempts.csv', index=False)
                 st.success("Past due customer list exported to 'past_due_customers_invoice_attempts.csv'")
         else:
