@@ -224,6 +224,13 @@ if customers is not None and subscriptions is not None:
     analysis_data.loc[:, 'created_month'] = analysis_data['created_date'].dt.to_period('M')
     analysis_data.loc[:, 'canceled_month'] = analysis_data['canceled_date'].dt.to_period('M')
 
+    # Calculate average customer lifetime (moved here from product comparison)
+    analysis_data['lifetime_days'] = (analysis_data['canceled_date'] - analysis_data['created_date']).dt.days
+    # Calculate average only for customers who have actually canceled
+    avg_lifetime = analysis_data.loc[analysis_data['canceled_date'].notna(), 'lifetime_days'].mean()
+    # Format for display, handle NaN if no customers canceled
+    avg_lifetime_display = f"{avg_lifetime:.0f}" if pd.notna(avg_lifetime) else "N/A"
+
     # Define all_months 
     if not analysis_data.empty and 'created_month' in analysis_data.columns:
         min_date = analysis_data['created_month'].min()
@@ -268,7 +275,6 @@ if customers is not None and subscriptions is not None:
         "Analiz Bölümü Seçin",
         [
             "Aylık Analiz",
-            "Ürün Karşılaştırma",
             "Müşteri Detayları",
             "Aylık Dağılım",
             "Aylık Ürün Analizi"
@@ -286,13 +292,12 @@ if customers is not None and subscriptions is not None:
             st.metric("Toplam Subscriptions", len(analysis_data))
             st.metric("Canceled Subscriptions (Total)", (analysis_data['Status'] == 'canceled').sum())
             st.metric("Future-Canceled Subscriptions (Now)", future_canceled_count_now)
+            st.metric("Avg Customer Lifetime (days)", avg_lifetime_display)
         with col2:
-            st.metric("Active Subscriptions (Now)", len(active_subs_now_df)) # Includes active, trialing, future-canceled, overdue
+            st.metric("Active Subscriptions (Now)", len(active_subs_now_df))
             st.metric("Trialing Subscriptions (Now)", trialing_count_now)
-            st.metric("Failed Subscriptions (Now)", overdue_count_now) # Display overdue/past_due count
+            st.metric("Failed Subscriptions (Now)", overdue_count_now)
             
-        st.dataframe(analysis_data)
-        
         # Display Past Due customer list
         st.subheader("Failed Olan Abonelerin listesi")
         if not past_due_df_now.empty:
@@ -450,73 +455,19 @@ if customers is not None and subscriptions is not None:
                 fig.add_trace(go.Scatter(x=churn_rate_df.index.astype(str), y=churn_rate_df[product], name=f"{product} - Churn Rate", line=dict(width=2)), row=3, col=1)
         fig.update_layout(height=900, title_text="Multi-Product Customer Analysis", showlegend=True)
         st.plotly_chart(fig)
-    elif sidebar_tab == "Ürün Karşılaştırma":
-        # Product comparison visualization
-        st.write("### Product Performance Comparison")
-        
-        # Calculate key metrics for each product
-        product_metrics = []
-        for product in selected_products:
-            product_data = analysis_data[analysis_data['Product'] == product]
-            
-            total_customers = len(product_data)
-            total_canceled = product_data['canceled_date'].notna().sum()
-            total_active = total_customers - total_canceled
-            
-            # Calculate average customer lifetime
-            product_data['lifetime'] = (product_data['canceled_date'] - product_data['created_date']).dt.days
-            avg_lifetime = product_data['lifetime'].mean()
-            
-            product_metrics.append({
-                'Product': product,
-                'Total Customers': total_customers,
-                'Active Customers': total_active,
-                'Canceled Customers': total_canceled,
-                'Churn Rate (%)': (total_canceled / total_customers * 100) if total_customers > 0 else 0,
-                'Avg Customer Lifetime (days)': avg_lifetime
-            })
-        
-        product_metrics_df = pd.DataFrame(product_metrics)
-        st.dataframe(product_metrics_df)
-        
-        # Visualize product comparison
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=product_metrics_df['Product'],
-            y=product_metrics_df['Active Customers'],
-            name='Active Customers',
-            marker_color='green'
-        ))
-        fig.add_trace(go.Bar(
-            x=product_metrics_df['Product'],
-            y=product_metrics_df['Canceled Customers'],
-            name='Canceled Customers',
-            marker_color='red'
-        ))
-        fig.update_layout(
-            barmode='group',
-            title='Active vs Canceled Customers by Product',
-            xaxis_title='Product',
-            yaxis_title='Number of Customers'
-        )
-        st.plotly_chart(fig)
-        
-        # Churn rate comparison
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=product_metrics_df['Product'],
-            y=product_metrics_df['Churn Rate (%)'],
-            marker_color='purple'
-        ))
-        fig.update_layout(
-            title='Churn Rate by Product',
-            xaxis_title='Product',
-            yaxis_title='Churn Rate (%)'
-        )
-        st.plotly_chart(fig)
     elif sidebar_tab == "Müşteri Detayları":
         # Customer details
-        st.write("### Customer Details")
+        st.header("Müşteri Detayları") # Keep header for the tab
+        
+        # Add the main dataframe here with the new title
+        st.subheader("Tüm Abonelerin Detaylı Bilgileri")
+        if 'analysis_data' in locals() and not analysis_data.empty:
+            st.dataframe(analysis_data)
+        else:
+            st.warning("Gösterilecek abone verisi bulunamadı.")
+            
+        st.divider() # Add a divider before filter options
+        st.write("### Filtreleme Seçenekleri") # Add a subheader for filters
         
         # Filter options
         col1, col2 = st.columns(2)
