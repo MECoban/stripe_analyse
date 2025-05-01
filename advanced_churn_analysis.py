@@ -111,7 +111,7 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
 
     return relevant_customers, filtered_subscriptions, error_message # Return data and None error if successful
 
-st.title("Gelişmiş Müşteri Kayıp Analizi Paneli")
+st.title("Gelişmiş Müşteri Analiz Paneli")
 
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 if not stripe.api_key:
@@ -168,7 +168,19 @@ if customers is not None and subscriptions is not None:
 
     data = pd.DataFrame(customer_data)
 
-    # Filter for selected product (This step might be redundant now but ensures consistency)
+    # --- Customer-Centric Deduplication ---
+    if not data.empty:
+        # Ensure 'Created (UTC)' is datetime for sorting
+        data['Created_dt'] = pd.to_datetime(data['Created (UTC)'], errors='coerce')
+        # Sort by email and latest creation date first
+        data.sort_values(by=['Customer Email', 'Created_dt'], ascending=[True, False], inplace=True)
+        # Keep only the first (latest) subscription record for each customer email
+        data = data.drop_duplicates(subset=['Customer Email'], keep='first')
+        # Drop the temporary datetime column if no longer needed
+        # data.drop(columns=['Created_dt'], inplace=True)
+    # --- End Deduplication ---
+
+    # Filter for selected product AFTER deduplication
     if product_selector == "GOLD":
         analysis_data = data[data['Product'] == 'GOLD'].copy()
         selected_products = ['GOLD']
