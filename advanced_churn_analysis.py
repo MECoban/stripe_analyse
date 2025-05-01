@@ -24,7 +24,7 @@ PRODUCT_START_DATES = {
 }
 
 # Cache the data fetching function - Reverted to using show_spinner, removed st.error
-@st.cache_data(ttl=3600, show_spinner="Fetching Stripe data...")
+@st.cache_data(ttl=3600, show_spinner="Stripe verileri alınıyor...")
 def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
     # These IDs are now defined globally
     if selected_product_label == "GOLD":
@@ -32,7 +32,7 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
     elif selected_product_label == "VIP":
         target_product_ids = {VIP_PRODUCT_ID}
     else:
-        return [], [], "Invalid product selection" # Return error message
+        return [], [], "Geçersiz ürün seçimi" # Return error message
 
     error_message = None # Variable to store potential errors
 
@@ -60,7 +60,7 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
             else:
                 has_more = False
         except Exception as e:
-            error_message = f"Error fetching subscriptions: {e}"
+            error_message = f"Abonelikler alınırken hata: {e}"
             print(error_message) # Log error instead of st.error
             return [], [], error_message # Return error message
             
@@ -75,7 +75,7 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
                 relevant_customer_ids.add(sub.customer) 
             
     if not relevant_customer_ids:
-         return [], [], "No relevant subscriptions found." # Return message
+         return [], [], "İlgili abonelik bulunamadı." # Return message
 
     # --- Step 3: Fetch Relevant Customers --- 
     relevant_customers = []
@@ -104,29 +104,29 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
             else:
                 has_more = False
         except Exception as e:
-            error_message = f"Error fetching customers: {e}"
+            error_message = f"Müşteriler alınırken hata: {e}"
             print(error_message) # Log error instead of st.error
             # Return partially fetched data and error message
             return relevant_customers, filtered_subscriptions, error_message 
 
     return relevant_customers, filtered_subscriptions, error_message # Return data and None error if successful
 
-st.title("Advanced Customer Churn Analysis Dashboard")
+st.title("Gelişmiş Müşteri Kayıp Analizi Paneli")
 
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 if not stripe.api_key:
-    st.error("Stripe API key not found. Please set the STRIPE_SECRET_KEY environment variable.")
+    st.error("Stripe API anahtarı bulunamadı. Lütfen STRIPE_SECRET_KEY ortam değişkenini ayarlayın.")
     st.stop()
 
 try:
     stripe.Customer.list(limit=1)
-    st.success("Successfully connected to Stripe API!")
+    st.success("Stripe API'sine başarıyla bağlanıldı!")
 except Exception as e:
-    st.error(f"Error connecting to Stripe: {str(e)}")
+    st.error(f"Stripe'a bağlanırken hata: {str(e)}")
     st.stop()
 
 # Product selector
-product_selector = st.selectbox("Select Product", ["GOLD", "VIP"])
+product_selector = st.selectbox("Ürün Seçin", ["GOLD", "VIP"])
 
 # Determine min creation timestamp based on selection
 min_creation_date = PRODUCT_START_DATES.get(product_selector, datetime(1970, 1, 1))
@@ -172,14 +172,14 @@ if customers is not None and subscriptions is not None:
     if product_selector == "GOLD":
         analysis_data = data[data['Product'] == 'GOLD'].copy()
         selected_products = ['GOLD']
-        product_header = "Analysis for Product: GOLD"
+        product_header = "Ürün Analizi: GOLD"
     else:
         analysis_data = data[data['Product'] == 'VIP'].copy()
         selected_products = ['VIP']
-        product_header = "Analysis for Product: VIP"
+        product_header = "Ürün Analizi: VIP"
 
     if analysis_data.empty:
-        st.warning(f"No data found for product: {product_selector}")
+        st.warning(f"Seçilen ürün için veri bulunamadı: {product_selector}")
         st.stop()
 
     # Define active condition based on NOW
@@ -229,7 +229,7 @@ if customers is not None and subscriptions is not None:
     # Calculate average only for customers who have actually canceled
     avg_lifetime = analysis_data.loc[analysis_data['canceled_date'].notna(), 'lifetime_days'].mean()
     # Format for display, handle NaN if no customers canceled
-    avg_lifetime_display = f"{avg_lifetime:.0f}" if pd.notna(avg_lifetime) else "N/A"
+    avg_lifetime_display = f"{avg_lifetime:.0f}" if pd.notna(avg_lifetime) else "Yok"
 
     # Define all_months 
     if not analysis_data.empty and 'created_month' in analysis_data.columns:
@@ -289,25 +289,25 @@ if customers is not None and subscriptions is not None:
         # Display metrics in two columns
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Toplam Subscriptions", len(analysis_data))
-            st.metric("Canceled Subscriptions (Total)", (analysis_data['Status'] == 'canceled').sum())
-            st.metric("Future-Canceled Subscriptions (Now)", future_canceled_count_now)
-            st.metric("Avg Customer Lifetime (days)", avg_lifetime_display)
+            st.metric("Toplam Abonelikler", len(analysis_data))
+            st.metric("İptal Edilen Abonelikler (Toplam)", (analysis_data['Status'] == 'canceled').sum())
+            st.metric("Gelecekte İptal Olacaklar (Şu An)", future_canceled_count_now)
+            st.metric("Ort. Müşteri Ömrü (gün)", avg_lifetime_display)
         with col2:
-            st.metric("Active Subscriptions (Now)", len(active_subs_now_df))
-            st.metric("Trialing Subscriptions (Now)", trialing_count_now)
-            st.metric("Failed Subscriptions (Now)", overdue_count_now)
+            st.metric("Aktif Abonelikler (Şu An)", len(active_subs_now_df))
+            st.metric("Deneme Sürümündeki Abonelikler (Şu An)", trialing_count_now)
+            st.metric("Ödemesi Başarısız Olanlar (Şu An)", overdue_count_now)
             
         # Display Past Due customer list
-        st.subheader("Failed Olan Abonelerin listesi")
+        st.subheader("Ödemesi Başarısız Olan Abonelerin Listesi")
         if not past_due_df_now.empty:
 
             invoice_attempt_counts = [] # List for invoice attempt counts
             last_attempt_dates = [] # List for last attempt dates
-            with st.spinner("Fetching invoice details for past due customers..."):
+            with st.spinner("Ödemesi başarısız abonelerin fatura detayları alınıyor..."):
                 for sub_id in past_due_df_now['Subscription ID']:
-                    inv_attempt_count = "N/A" # Default value
-                    last_attempt_date = "N/A" # Default date
+                    inv_attempt_count = "Yok" # Default value
+                    last_attempt_date = "Yok" # Default date
                     try:
                         sub = stripe.Subscription.retrieve(sub_id)
                         if sub.latest_invoice:
@@ -336,53 +336,53 @@ if customers is not None and subscriptions is not None:
                                     # Or maybe the first attempt succeeded then subscription churned?
                                     # Check if attempt_count is > 0 but no failed event
                                     if inv_attempt_count > 0:
-                                         last_attempt_date = "N/A (No Fail Event)"
+                                         last_attempt_date = "Başrsz Olay Yok" # Updated N/A message
                                     else: # attempt_count is 0 or None
-                                         last_attempt_date = "N/A (No Attempts Yet)"
+                                         last_attempt_date = "Henüz Deneme Yok" # Updated N/A message
 
                             except stripe.error.PermissionError as event_perm_err:
                                 print(f"Permission Error fetching events for invoice {invoice.id}: {event_perm_err}")
-                                last_attempt_date = "Perm. Error (Events)"
+                                last_attempt_date = "İzin H. (Olay)" # Updated error message
                             except Exception as event_err:
                                 print(f"Error fetching events for invoice {invoice.id}: {event_err}")
-                                last_attempt_date = "Error (Events)"
+                                last_attempt_date = "Hata (Olay)" # Updated error message
                         else:
-                            inv_attempt_count = "N/A (No Inv)"
-                            last_attempt_date = "N/A (No Inv)"
+                            inv_attempt_count = "Fatura Yok" # Updated N/A message
+                            last_attempt_date = "Fatura Yok" # Updated N/A message
 
                     except stripe.error.PermissionError as e:
                         print(f"Permission Error processing sub {sub_id}: {e}")
-                        inv_attempt_count = "Perm. Error"
-                        last_attempt_date = "Perm. Error"
+                        inv_attempt_count = "İzin Hatası" # Updated error message
+                        last_attempt_date = "İzin Hatası" # Updated error message
                     except stripe.error.InvalidRequestError as e:
                          print(f"Invalid Request Error processing sub {sub_id}: {e}")
-                         inv_attempt_count = "API Error"
-                         last_attempt_date = "API Error"
+                         inv_attempt_count = "API Hatası" # Updated error message
+                         last_attempt_date = "API Hatası" # Updated error message
                     except Exception as e:
                         print(f"General Error processing sub {sub_id}: {e}")
-                        inv_attempt_count = "Error"
-                        last_attempt_date = "Error"
+                        inv_attempt_count = "Hata" # Updated error message
+                        last_attempt_date = "Hata" # Updated error message
                         
                     invoice_attempt_counts.append(inv_attempt_count)
                     last_attempt_dates.append(last_attempt_date) # Append the date
 
             # Create a display DataFrame with the new columns
             past_due_df_display = past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']].copy()
-            past_due_df_display['Invoice Attempt Count'] = invoice_attempt_counts
-            past_due_df_display['Last Attempt (UTC)'] = last_attempt_dates # Add the date column
+            past_due_df_display['Fatura Deneme Sayısı'] = invoice_attempt_counts
+            past_due_df_display['Son Deneme (UTC)'] = last_attempt_dates # Add the date column
             
             # Display the table
             st.dataframe(past_due_df_display)
             
             # Optional: Add export for past due list including the new columns
-            if st.button("Export Past Due List"):
+            if st.button("Listeyi Dışa Aktar"):
                 export_df = past_due_df_now.copy()
                 export_df['Invoice Attempt Count'] = invoice_attempt_counts
                 export_df['Last Attempt (UTC)'] = last_attempt_dates # Add date to export
-                export_df.to_csv('past_due_customers_invoice_attempts.csv', index=False)
-                st.success("Past due customer list exported to 'past_due_customers_invoice_attempts.csv'")
+                export_df.to_csv('odemesi_basarisiz_aboneler.csv', index=False)
+                st.success("Ödemesi başarısız aboneler listesi 'odemesi_basarisiz_aboneler.csv' dosyasına aktarıldı")
         else:
-            st.info("No customers currently have a 'past_due' status.")
+            st.info("Şu anda 'past_due' (ödemesi başarısız) durumunda müşteri bulunmamaktadır.")
         
         # Calculate customers created per month
         created_per_month = analysis_data.groupby(['created_month', 'Product'])['Customer ID'].count().reset_index()
@@ -432,28 +432,28 @@ if customers is not None and subscriptions is not None:
         total_churn_rate = (total_canceled / total_created.replace(0, np.nan)).fillna(0) * 100
         
         # Display total churn rate
-        st.write("### Overall Churn Rate by Product")
+        st.write("### Ürünlere Göre Toplam Churn Oranı")
         total_churn_df = pd.DataFrame({
-            'Product': all_products,
-            'Total Created': total_created.values,
-            'Total Canceled': total_canceled.values,
-            'Total Churn Rate (%)': total_churn_rate.values
+            'Ürün': all_products,
+            'Toplam Oluşturulan': total_created.values,
+            'Toplam İptal': total_canceled.values,
+            'Toplam Churn Oranı (%)': total_churn_rate.values
         })
         st.dataframe(total_churn_df)
         
         # Display monthly analysis visualization
-        st.write("### Monthly Customer Analysis")
-        fig = make_subplots(rows=3, cols=1, subplot_titles=("Active Customers", "Created vs Canceled", "Churn Rate"), vertical_spacing=0.1)
+        st.write("### Ürünlere Göre Aylık Analiz")
+        fig = make_subplots(rows=3, cols=1, subplot_titles=("Aktif Müşteriler", "Oluşturulan vs İptal Edilen", "Churn Oranı"), vertical_spacing=0.1)
         for product in selected_products:
             if product in active_per_month_df.columns:
-                fig.add_trace(go.Scatter(x=active_per_month_df.index.astype(str), y=active_per_month_df[product], name=f"{product} - Active", line=dict(width=2)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=active_per_month_df.index.astype(str), y=active_per_month_df[product], name=f"{product} - Aktif", line=dict(width=2)), row=1, col=1)
             if product in created_per_month.columns:
-                fig.add_trace(go.Scatter(x=created_per_month.index.astype(str), y=created_per_month[product], name=f"{product} - Created", line=dict(width=2)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=created_per_month.index.astype(str), y=created_per_month[product], name=f"{product} - Oluşturulan", line=dict(width=2)), row=2, col=1)
             if product in canceled_per_month.columns:
-                fig.add_trace(go.Scatter(x=canceled_per_month.index.astype(str), y=canceled_per_month[product], name=f"{product} - Canceled", line=dict(width=2)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=canceled_per_month.index.astype(str), y=canceled_per_month[product], name=f"{product} - İptal", line=dict(width=2)), row=2, col=1)
             if product in churn_rate_df.columns:
-                fig.add_trace(go.Scatter(x=churn_rate_df.index.astype(str), y=churn_rate_df[product], name=f"{product} - Churn Rate", line=dict(width=2)), row=3, col=1)
-        fig.update_layout(height=900, title_text="Multi-Product Customer Analysis", showlegend=True)
+                fig.add_trace(go.Scatter(x=churn_rate_df.index.astype(str), y=churn_rate_df[product], name=f"{product} - Churn Oranı", line=dict(width=2)), row=3, col=1)
+        fig.update_layout(height=900, title_text="Çoklu Ürün Müşteri Analizi", showlegend=True)
         st.plotly_chart(fig)
     elif sidebar_tab == "Müşteri Detayları":
         # Customer details
@@ -491,9 +491,9 @@ if customers is not None and subscriptions is not None:
         st.dataframe(customer_details[['Customer ID', 'Customer Email', 'Product', 'created_date', 'canceled_date']])
         
         # Export options
-        if st.button("Export Customer Details"):
-            customer_details.to_csv('customer_details.csv', index=False)
-            st.success("Customer details exported to 'customer_details.csv'")
+        if st.button("Müşteri Detaylarını Dışa Aktar"):
+            customer_details.to_csv('musteri_detaylari.csv', index=False)
+            st.success("Müşteri detayları 'musteri_detaylari.csv' dosyasına aktarıldı")
     elif sidebar_tab == "Aylık Dağılım":
         # Monthly breakdown analysis
         st.write("### Aylık Dağılım Tablosu")
@@ -539,37 +539,33 @@ if customers is not None and subscriptions is not None:
                 churn_rate_oguzhan = (canceled_this_month / active_at_month_end_count * 100) if active_at_month_end_count > 0 else 0
                 
                 monthly_summary.append({
-                    'Month': month_str,
-                    'Product': product,
-                    'Created': created_this_month,
-                    'Canceled': canceled_this_month,
-                    'Active': active_at_month_end_count,
-                    'Churn Rate (%)': churn_rate_original, # Keep original name or rename?
-                    'Churn Rate Oguzhan': churn_rate_oguzhan
+                    'Ay': month_str,
+                    'Ürün': product,
+                    'Oluşturulan': created_this_month,
+                    'İptal': canceled_this_month,
+                    'Aktif': active_at_month_end_count,
+                    'Churn Oranı (%)': churn_rate_original, # Keep original name or rename?
+                    'Churn Oranı (Aktife Göre)': churn_rate_oguzhan
                 })
                 
         monthly_summary_df = pd.DataFrame(monthly_summary)
-        st.write("#### Monthly Summary by Product")
+        st.write("#### Ürün Bazında Aylık Özet")
         st.dataframe(monthly_summary_df)
-        st.write("#### Churn Rate Heatmap")
-        churn_heatmap_data = monthly_summary_df.pivot(index='Month', columns='Product', values='Churn Rate (%)').fillna(0)
-        fig = go.Figure(data=go.Heatmap(z=churn_heatmap_data.values, x=churn_heatmap_data.columns, y=churn_heatmap_data.index, colorscale='RdYlGn_r', colorbar=dict(title='Churn Rate (%)')))
-        fig.update_layout(title='Monthly Churn Rate Heatmap by Product', xaxis_title='Product', yaxis_title='Month', height=600)
-        st.plotly_chart(fig)
-        st.write("#### Customer Growth Over Time")
-        growth_data = monthly_summary_df.pivot(index='Month', columns='Product', values='Active').fillna(0)
+        
+        st.write("#### Zaman İçinde Müşteri Büyümesi")
+        growth_data = monthly_summary_df.pivot(index='Ay', columns='Ürün', values='Aktif').fillna(0)
         fig = go.Figure()
         for product in growth_data.columns:
             fig.add_trace(go.Scatter(x=growth_data.index, y=growth_data[product], name=product, stackgroup='one', mode='lines'))
-        fig.update_layout(title='Customer Growth Over Time', xaxis_title='Month', yaxis_title='Number of Active Customers', height=500)
+        fig.update_layout(title='Zaman İçinde Müşteri Büyümesi', xaxis_title='Ay', yaxis_title='Aktif Müşteri Sayısı', height=500)
         st.plotly_chart(fig)
-        if st.button("Export Monthly Summary"):
-            monthly_summary_df.to_csv('monthly_summary.csv', index=False)
-            st.success("Monthly summary exported to 'monthly_summary.csv'")
+        if st.button("Aylık Özeti Dışa Aktar"):
+            monthly_summary_df.to_csv('aylik_ozet.csv', index=False)
+            st.success("Aylık özet 'aylik_ozet.csv' dosyasına aktarıldı")
     elif sidebar_tab == "Aylık Ürün Analizi":
         # Monthly Product Analysis
         st.write("### Aylık Ürün Analizi")
-        selected_product = st.selectbox("Detaylı analiz için ürün seçin", selected_products, disabled=True) 
+        selected_product = st.selectbox("Detaylı analiz için ürün seçin", selected_products) 
         product_data = analysis_data # Already filtered
         monthly_product_metrics = []
         now_naive = pd.Timestamp.utcnow().tz_localize(None)
@@ -605,51 +601,51 @@ if customers is not None and subscriptions is not None:
             retention_rate = 100 - churn_rate
 
             monthly_product_metrics.append({
-                'Month': month_str,
-                'Created': created_this_month,
-                'Canceled': canceled_this_month,
-                'Active': active_at_month_end_count,
-                'Net Growth': net_growth,
-                'Churn Rate (%)': churn_rate,
-                'Growth Rate (%)': growth_rate,
-                'Retention Rate (%)': retention_rate
+                'Ay': month_str,
+                'Oluşturulan': created_this_month,
+                'İptal': canceled_this_month,
+                'Aktif': active_at_month_end_count,
+                'Net Büyüme': net_growth,
+                'Churn Oranı (%)': churn_rate,
+                'Büyüme Oranı (%)': growth_rate,
+                'Tutma Oranı (%)': retention_rate
             })
         monthly_product_df = pd.DataFrame(monthly_product_metrics)
-        st.write(f"#### Monthly Metrics for {selected_product}")
+        st.write(f"#### {selected_product} İçin Aylık Analiz")
         st.dataframe(monthly_product_df)
-        st.write(f"#### Monthly Trends for {selected_product}")
-        fig = make_subplots(rows=3, cols=1, subplot_titles=("Customer Counts", "Growth Metrics", "Rates"), vertical_spacing=0.1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Created'], name="Created", line=dict(width=2, color='green')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Canceled'], name="Canceled", line=dict(width=2, color='red')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Active'], name="Active", line=dict(width=2, color='blue')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Net Growth'], name="Net Growth", line=dict(width=2, color='purple')), row=2, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Churn Rate (%)'], name="Churn Rate (%)", line=dict(width=2, color='red')), row=3, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Growth Rate (%)'], name="Growth Rate (%)", line=dict(width=2, color='green')), row=3, col=1)
-        fig.add_trace(go.Scatter(x=monthly_product_df['Month'], y=monthly_product_df['Retention Rate (%)'], name="Retention Rate (%)", line=dict(width=2, color='blue')), row=3, col=1)
-        fig.update_layout(height=900, title_text=f"Monthly Analysis for {selected_product}", showlegend=True)
+        st.write(f"#### {selected_product} İçin Aylık Trendler")
+        fig = make_subplots(rows=3, cols=1, subplot_titles=("Müşteri Sayıları", "Büyüme Metrikleri", "Oranlar"), vertical_spacing=0.1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Oluşturulan'], name="Oluşturulan", line=dict(width=2, color='green')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['İptal'], name="İptal", line=dict(width=2, color='red')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Aktif'], name="Aktif", line=dict(width=2, color='blue')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Net Büyüme'], name="Net Büyüme", line=dict(width=2, color='purple')), row=2, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Churn Oranı (%)'], name="Churn Oranı (%)", line=dict(width=2, color='red')), row=3, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Büyüme Oranı (%)'], name="Büyüme Oranı (%)", line=dict(width=2, color='green')), row=3, col=1)
+        fig.add_trace(go.Scatter(x=monthly_product_df['Ay'], y=monthly_product_df['Tutma Oranı (%)'], name="Tutma Oranı (%)", line=dict(width=2, color='blue')), row=3, col=1)
+        fig.update_layout(height=900, title_text=f"{selected_product} İçin Aylık Analiz", showlegend=True)
         st.plotly_chart(fig)
-        st.write(f"#### Key Metrics for {selected_product}")
-        total_created = monthly_product_df['Created'].sum()
-        total_canceled = monthly_product_df['Canceled'].sum()
-        current_active = monthly_product_df['Active'].iloc[-1] if not monthly_product_df.empty else 0
+        st.write(f"#### {selected_product} İçin Anahtar Metrikler")
+        total_created = monthly_product_df['Oluşturulan'].sum()
+        total_canceled = monthly_product_df['İptal'].sum()
+        current_active = monthly_product_df['Aktif'].iloc[-1] if not monthly_product_df.empty else 0
         overall_churn_rate = (total_canceled / total_created * 100) if total_created > 0 else 0
         overall_retention_rate = 100 - overall_churn_rate
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Created", total_created)
-            st.metric("Total Canceled", total_canceled)
+            st.metric("Toplam Oluşturulan", total_created)
+            st.metric("Toplam İptal", total_canceled)
         with col2:
-            st.metric("Current Active", current_active)
-            st.metric("Net Growth", total_created - total_canceled)
+            st.metric("Mevcut Aktif", current_active)
+            st.metric("Net Büyüme", total_created - total_canceled)
         with col3:
-            st.metric("Overall Churn Rate (%)", f"{overall_churn_rate:.2f}%")
-            st.metric("Overall Retention Rate (%)", f"{overall_retention_rate:.2f}%")
-        if st.button(f"Export {selected_product} Monthly Analysis"):
-            monthly_product_df.to_csv(f'{selected_product}_monthly_analysis.csv', index=False)
-            st.success(f"Monthly analysis for {selected_product} exported to '{selected_product}_monthly_analysis.csv'")
+            st.metric("Genel Churn Oranı (%)", f"{overall_churn_rate:.2f}%")
+            st.metric("Genel Tutma Oranı (%)", f"{overall_retention_rate:.2f}%")
+        if st.button(f"{selected_product} Aylık Analizini Dışa Aktar"):
+            monthly_product_df.to_csv(f'{selected_product}_aylik_analiz.csv', index=False)
+            st.success(f"{selected_product} için aylık analiz '{selected_product}_aylik_analiz.csv' dosyasına aktarıldı")
 
 else:
-    st.error("Failed to fetch data.")
+    st.error("Veri alınamadı.")
 
 # Save analysis results
 st.success("Analysis Completed!") 
