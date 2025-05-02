@@ -13,9 +13,16 @@ load_dotenv()
 
 # Password protection removed for now
 
-# Define Product IDs globally
-VIP_PRODUCT_ID = "prod_ReY9OvvKriHaxW"
-GOLD_PRODUCT_IDs = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]
+# Define Product IDs and Prices globally
+VIP_PRODUCT_IDS_19 = ["prod_ReY9OvvKriHaxW", "prod_SBvjXlo061XZwu", "prod_ReWWPgA2gHZMUx"]  # $19/ay
+VIP_PRODUCT_IDS_49 = ["prod_SBuNKVN5n7M3vy", "prod_SCw2DzI2S9QNMJ"]  # $49/ay
+GOLD_PRODUCT_IDS = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]  # $97/ay
+
+PRODUCT_PRICES = {
+    'GOLD': 97,
+    'VIP_19': 19,
+    'VIP_49': 49
+}
 
 # Define product start dates
 PRODUCT_START_DATES = {
@@ -28,9 +35,9 @@ PRODUCT_START_DATES = {
 def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
     # These IDs are now defined globally
     if selected_product_label == "GOLD":
-        target_product_ids = set(GOLD_PRODUCT_IDs)
+        target_product_ids = set(GOLD_PRODUCT_IDS)
     elif selected_product_label == "VIP":
-        target_product_ids = {VIP_PRODUCT_ID}
+        target_product_ids = {VIP_PRODUCT_IDS_49}
     else:
         return [], [], "Geçersiz ürün seçimi" # Return error message
 
@@ -149,13 +156,19 @@ if customers is not None and subscriptions is not None:
         for sub in customer_subs: 
             product_id = sub.plan.product if hasattr(sub, 'plan') and hasattr(sub.plan, 'product') else 'Unknown Product'
             # Use globally defined IDs
-            if product_id in GOLD_PRODUCT_IDs:
-                 product_label = 'GOLD'
-            elif product_id == VIP_PRODUCT_ID:
-                 product_label = 'VIP'
+            if product_id in GOLD_PRODUCT_IDS:
+                product_label = 'GOLD'
+                price = PRODUCT_PRICES['GOLD']
+            elif product_id in VIP_PRODUCT_IDS_19:
+                product_label = 'VIP_19'
+                price = PRODUCT_PRICES['VIP_19']
+            elif product_id in VIP_PRODUCT_IDS_49:
+                product_label = 'VIP_49'
+                price = PRODUCT_PRICES['VIP_49']
             else:
-                 product_label = product_id
-                 
+                product_label = product_id
+                price = 0
+            
             customer_data.append({
                 'Customer ID': customer.id,
                 'Customer Email': customer.email,
@@ -163,7 +176,8 @@ if customers is not None and subscriptions is not None:
                 'Subscription ID': sub.id, # Added back to retrieve details later
                 'Created (UTC)': datetime.fromtimestamp(sub.created).strftime('%Y-%m-%d %H:%M:%S'),
                 'Canceled At (UTC)': datetime.fromtimestamp(sub.canceled_at).strftime('%Y-%m-%d %H:%M:%S') if sub.canceled_at else None,
-                'Status': sub.status
+                'Status': sub.status,
+                'Fiyat': price
             })
 
     data = pd.DataFrame(customer_data)
@@ -289,7 +303,8 @@ if customers is not None and subscriptions is not None:
             "Aylık Analiz",
             "Müşteri Detayları",
             "Aylık Dağılım",
-            "Aylık Ürün Analizi"
+            "Aylık Ürün Analizi",
+            "Finansal Analiz"
         ]
     )
 
@@ -655,6 +670,55 @@ if customers is not None and subscriptions is not None:
         if st.button(f"{selected_product} Aylık Analizini Dışa Aktar"):
             monthly_product_df.to_csv(f'{selected_product}_aylik_analiz.csv', index=False)
             st.success(f"{selected_product} için aylık analiz '{selected_product}_aylik_analiz.csv' dosyasına aktarıldı")
+    elif sidebar_tab == "Finansal Analiz":
+        st.header("Finansal Analiz")
+        # Şu an aktif olan tüm abonelikleri al
+        aktif_abonelikler = analysis_data[(analysis_data['Status'].isin(['active', 'trialing', 'overdue', 'past_due'])) |
+                                          ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_date'].isna() | (analysis_data['canceled_date'] > now)))]
+        # MRR hesapla
+        toplam_mrr = aktif_abonelikler['Fiyat'].sum()
+        # ARR hesapla
+        toplam_arr = toplam_mrr * 12
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Toplam MRR ($)", f"${toplam_mrr:,.2f}")
+        with col2:
+            st.metric("Toplam ARR ($)", f"${toplam_arr:,.2f}")
+
+        # Aylık gelir trendi için: Her ayın sonunda aktif olan aboneliklerin toplam fiyatı
+        gelir_trend = []
+        for month in all_months:
+            month_end = month.to_timestamp(how='end').tz_localize(None)
+            aktif_mask = (
+                (analysis_data['created_month'] <= month) &
+                (
+                    (analysis_data['Status'].isin(['active', 'trialing', 'overdue', 'past_due'])) |
+                    ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'] > month_end))
+                )
+            )
+            aktifler = analysis_data[aktif_mask]
+            toplam_gelir = aktifler['Fiyat'].sum()
+            gelir_trend.append({
+                'Ay': str(month),
+                'Toplam Gelir ($)': toplam_gelir,
+                'GOLD Gelir ($)': aktifler[aktifler['Product'] == 'GOLD']['Fiyat'].sum(),
+                'VIP_19 Gelir ($)': aktifler[aktifler['Product'] == 'VIP_19']['Fiyat'].sum(),
+                'VIP_49 Gelir ($)': aktifler[aktifler['Product'] == 'VIP_49']['Fiyat'].sum(),
+            })
+        gelir_trend_df = pd.DataFrame(gelir_trend)
+        st.write("### Aylık Gelir Tablosu")
+        st.dataframe(gelir_trend_df)
+        st.write("### Aylık Gelir Grafiği")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=gelir_trend_df['Ay'], y=gelir_trend_df['Toplam Gelir ($)'], name='Toplam Gelir', line=dict(width=3)))
+        fig.add_trace(go.Scatter(x=gelir_trend_df['Ay'], y=gelir_trend_df['GOLD Gelir ($)'], name='GOLD', line=dict(width=2, dash='dot')))
+        fig.add_trace(go.Scatter(x=gelir_trend_df['Ay'], y=gelir_trend_df['VIP_19 Gelir ($)'], name='VIP $19', line=dict(width=2, dash='dash')))
+        fig.add_trace(go.Scatter(x=gelir_trend_df['Ay'], y=gelir_trend_df['VIP_49 Gelir ($)'], name='VIP $49', line=dict(width=2, dash='longdash')))
+        fig.update_layout(title='Aylık MRR Gelir Trendleri', xaxis_title='Ay', yaxis_title='Gelir ($)', height=500)
+        st.plotly_chart(fig)
+        if st.button("Finansal Analizi Dışa Aktar"):
+            gelir_trend_df.to_csv('finansal_analiz.csv', index=False)
+            st.success("Finansal analiz 'finansal_analiz.csv' dosyasına aktarıldı")
 
 else:
     st.error("Veri alınamadı.")
