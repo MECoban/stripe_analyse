@@ -380,7 +380,7 @@ if customers is not None and subscriptions is not None:
 
             # Create a display DataFrame with the new columns
             past_due_df_display = past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']].copy()
-            past_due_df_display['Fatura Deneme Sayısı'] = invoice_attempt_counts
+            past_due_df_display['Başarısız Ödeme Sayısı'] = invoice_attempt_counts
             past_due_df_display['Son Deneme (UTC)'] = last_attempt_dates # Add the date column
             
             # Display the table
