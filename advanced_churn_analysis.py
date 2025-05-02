@@ -37,7 +37,7 @@ def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
     if selected_product_label == "GOLD":
         target_product_ids = set(GOLD_PRODUCT_IDS)
     elif selected_product_label == "VIP":
-        target_product_ids = {VIP_PRODUCT_IDS_49}
+        target_product_ids = set(VIP_PRODUCT_IDS_19 + VIP_PRODUCT_IDS_49)
     else:
         return [], [], "Geçersiz ürün seçimi" # Return error message
 
