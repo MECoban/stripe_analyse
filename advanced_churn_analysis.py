@@ -13,16 +13,9 @@ load_dotenv()
 
 # Password protection removed for now
 
-# Define Product IDs and Prices globally
-VIP_PRODUCT_IDS_19 = ["prod_ReY9OvvKriHaxW", "prod_SBvjXlo061XZwu", "prod_ReWWPgA2gHZMUx"]  # $19/ay
-VIP_PRODUCT_IDS_49 = ["prod_SBuNKVN5n7M3vy", "prod_SCw2DzI2S9QNMJ"]  # $49/ay
-GOLD_PRODUCT_IDS = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]  # $97/ay
-
-PRODUCT_PRICES = {
-    'GOLD': 97,
-    'VIP_19': 19,
-    'VIP_49': 49
-}
+# Define Product IDs globally
+VIP_PRODUCT_ID = "prod_ReY9OvvKriHaxW"
+GOLD_PRODUCT_IDs = ["prod_QPlfKu5msYB4LD", "prod_QPl3bHPgziJbg7", "prod_R0TVW9SQX1HJXj"]
 
 # Define product start dates
 PRODUCT_START_DATES = {
@@ -35,9 +28,9 @@ PRODUCT_START_DATES = {
 def fetch_product_specific_data(selected_product_label, min_creation_timestamp):
     # These IDs are now defined globally
     if selected_product_label == "GOLD":
-        target_product_ids = set(GOLD_PRODUCT_IDS)
+        target_product_ids = set(GOLD_PRODUCT_IDs)
     elif selected_product_label == "VIP":
-        target_product_ids = set(VIP_PRODUCT_IDS_19 + VIP_PRODUCT_IDS_49)
+        target_product_ids = {VIP_PRODUCT_ID}
     else:
         return [], [], "Geçersiz ürün seçimi" # Return error message
 
@@ -156,19 +149,13 @@ if customers is not None and subscriptions is not None:
         for sub in customer_subs: 
             product_id = sub.plan.product if hasattr(sub, 'plan') and hasattr(sub.plan, 'product') else 'Unknown Product'
             # Use globally defined IDs
-            if product_id in GOLD_PRODUCT_IDS:
-                product_label = 'GOLD'
-                price = PRODUCT_PRICES['GOLD']
-            elif product_id in VIP_PRODUCT_IDS_19:
-                product_label = 'VIP_19'
-                price = PRODUCT_PRICES['VIP_19']
-            elif product_id in VIP_PRODUCT_IDS_49:
-                product_label = 'VIP_49'
-                price = PRODUCT_PRICES['VIP_49']
+            if product_id in GOLD_PRODUCT_IDs:
+                 product_label = 'GOLD'
+            elif product_id == VIP_PRODUCT_ID:
+                 product_label = 'VIP'
             else:
-                product_label = product_id
-                price = 0
-            
+                 product_label = product_id
+                 
             customer_data.append({
                 'Customer ID': customer.id,
                 'Customer Email': customer.email,
@@ -176,25 +163,16 @@ if customers is not None and subscriptions is not None:
                 'Subscription ID': sub.id, # Added back to retrieve details later
                 'Created (UTC)': datetime.fromtimestamp(sub.created).strftime('%Y-%m-%d %H:%M:%S'),
                 'Canceled At (UTC)': datetime.fromtimestamp(sub.canceled_at).strftime('%Y-%m-%d %H:%M:%S') if sub.canceled_at else None,
-                'Status': sub.status,
-                'Fiyat': price
+                'Status': sub.status
             })
 
     data = pd.DataFrame(customer_data)
 
-    # --- Customer-Centric Deduplication ---
-    if not data.empty:
-        # Ensure 'Created (UTC)' is datetime for sorting
-        data['Created_dt'] = pd.to_datetime(data['Created (UTC)'], errors='coerce')
-        # Sort by email and latest creation date first
-        data.sort_values(by=['Customer Email', 'Created_dt'], ascending=[True, False], inplace=True)
-        # Keep only the first (latest) subscription record for each customer email
-        data = data.drop_duplicates(subset=['Customer Email'], keep='first')
-        # Drop the temporary datetime column if no longer needed
-        # data.drop(columns=['Created_dt'], inplace=True)
-    # --- End Deduplication ---
+    # Her müşteri ve ürün için sadece en güncel abonelik kaydını bırak
+    data['created_dt'] = pd.to_datetime(data['Created (UTC)'], errors='coerce')
+    data = data.sort_values('created_dt').drop_duplicates(subset=['Customer Email', 'Product'], keep='last')
 
-    # Filter for selected product AFTER deduplication
+    # Filter for selected product (This step might be redundant now but ensures consistency)
     if product_selector == "GOLD":
         analysis_data = data[data['Product'] == 'GOLD'].copy()
         selected_products = ['GOLD']
@@ -394,7 +372,7 @@ if customers is not None and subscriptions is not None:
 
             # Create a display DataFrame with the new columns
             past_due_df_display = past_due_df_now[['Customer Email', 'Product', 'Status', 'Created (UTC)']].copy()
-            past_due_df_display['Başarısız Ödeme Sayısı'] = invoice_attempt_counts
+            past_due_df_display['Fatura Deneme Sayısı'] = invoice_attempt_counts
             past_due_df_display['Son Deneme (UTC)'] = last_attempt_dates # Add the date column
             
             # Display the table
@@ -538,7 +516,8 @@ if customers is not None and subscriptions is not None:
                     (analysis_data['Status'] == 'trialing') | \
                     (analysis_data['Status'] == 'overdue') | \
                     (analysis_data['Status'] == 'past_due') | \
-                    ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'].notna()) & # Ensure canceled_at_dt is not NaT
+                    ((analysis_data['Status'] == 'canceled') &
+                     (analysis_data['canceled_at_dt'].notna()) & # Ensure canceled_at_dt is not NaT
                      (analysis_data['canceled_at_dt'] > month_end_ts))
                 )
             
