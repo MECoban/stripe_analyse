@@ -303,8 +303,7 @@ if customers is not None and subscriptions is not None:
             "Aylık Analiz",
             "Müşteri Detayları",
             "Aylık Dağılım",
-            "Aylık Ürün Analizi",
-            "Finansal Analiz"
+            "Aylık Ürün Analizi"
         ]
     )
 
@@ -670,30 +669,6 @@ if customers is not None and subscriptions is not None:
         if st.button(f"{selected_product} Aylık Analizini Dışa Aktar"):
             monthly_product_df.to_csv(f'{selected_product}_aylik_analiz.csv', index=False)
             st.success(f"{selected_product} için aylık analiz '{selected_product}_aylik_analiz.csv' dosyasına aktarıldı")
-    elif sidebar_tab == "Finansal Analiz":
-        st.header("Finansal Analiz")
-        # Toplam gelir
-        toplam_gelir = analysis_data['Fiyat'].sum()
-        # MRR (sadece aktif ve trialing abonelikler)
-        mrr = analysis_data[(analysis_data['Status'].isin(['active', 'trialing', 'overdue', 'past_due']))]['Fiyat'].sum()
-        # Ürün bazında gelir
-        urun_gelir = analysis_data.groupby('Product')['Fiyat'].sum().reset_index()
-        # Aylık gelir trendi
-        analysis_data['created_month'] = pd.to_datetime(analysis_data['Created (UTC)'], errors='coerce').dt.to_period('M')
-        aylik_gelir = analysis_data.groupby('created_month')['Fiyat'].sum().reset_index()
-        aylik_gelir['created_month'] = aylik_gelir['created_month'].astype(str)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Toplam Tahmini Gelir ($)", toplam_gelir)
-        with col2:
-            st.metric("Aylık Tekrar Eden Gelir (MRR) ($)", mrr)
-        st.write("### Ürün Bazında Toplam Gelir")
-        st.dataframe(urun_gelir)
-        st.write("### Zaman İçinde Aylık Gelir")
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=aylik_gelir['created_month'], y=aylik_gelir['Fiyat'], name='Aylık Gelir'))
-        fig.update_layout(title='Aylık Gelir Trendleri', xaxis_title='Ay', yaxis_title='Gelir ($)', height=400)
-        st.plotly_chart(fig)
 
 else:
     st.error("Veri alınamadı.")
