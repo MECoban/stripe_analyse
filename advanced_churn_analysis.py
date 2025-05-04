@@ -538,8 +538,7 @@ if customers is not None and subscriptions is not None:
                     (analysis_data['Status'] == 'trialing') | \
                     (analysis_data['Status'] == 'overdue') | \
                     (analysis_data['Status'] == 'past_due') | \
-                    ((analysis_data['Status'] == 'canceled') &
-                     (analysis_data['canceled_at_dt'].notna()) & # Ensure canceled_at_dt is not NaT
+                    ((analysis_data['Status'] == 'canceled') & (analysis_data['canceled_at_dt'].notna()) & # Ensure canceled_at_dt is not NaT
                      (analysis_data['canceled_at_dt'] > month_end_ts))
                 )
             
